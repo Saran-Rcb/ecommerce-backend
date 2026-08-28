@@ -1,0 +1,145 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+model Product {
+  id          Int        @id @default(autoincrement())
+  name        String
+  description String?
+  price       Float
+  imageUrl    String?
+  stock       Int        @default(0)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  cartItems   CartItem[]
+  orderItems  OrderItem[]
+}
+
+model User {
+  id        Int       @id @default(autoincrement())
+  name      String
+  email     String    @unique
+  password  String
+  role      UserRole  @default(USER)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  cart      Cart?
+  addresses Address[]
+  orders    Order[]
+}
+
+model Cart {
+  id        Int        @id @default(autoincrement())
+  userId    Int        @unique
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items     CartItem[]
+}
+
+model CartItem {
+  id        Int      @id @default(autoincrement())
+  cartId    Int
+  productId Int
+  quantity  Int      @default(1)
+
+  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id])
+
+  @@unique([cartId, productId])
+}
+
+model Address {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  fullName   String
+  phone      String
+  address    String
+  city       String
+  state      String
+  postalCode String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders     Order[]
+}
+
+
+model Order {
+  id                 Int         @id @default(autoincrement())
+  userId             Int
+  addressId          Int?
+  status             OrderStatus @default(PENDING)
+  totalAmount        Float
+
+  // ==========================================
+  // RAZORPAY PAYMENT
+  // ==========================================
+
+  razorpayOrderId    String?     @unique
+  razorpayPaymentId  String?
+  razorpaySignature  String?
+
+  // ==========================================
+  // SHIPROCKET SHIPPING
+  // ==========================================
+
+  shiprocketOrderId    String?   @unique
+  shiprocketShipmentId String?
+  awbCode              String?
+  courierName          String?
+  trackingUrl          String?
+
+  // ==========================================
+  // TIMESTAMPS
+  // ==========================================
+
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  // ==========================================
+  // RELATIONS
+  // ==========================================
+
+  user               User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  address            Address?    @relation(fields: [addressId], references: [id])
+  items              OrderItem[]
+}
+
+model OrderItem {
+  id        Int     @id @default(autoincrement())
+  orderId   Int
+  productId Int
+  quantity  Int
+  price     Float
+
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id])
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
