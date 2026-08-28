@@ -64,3 +64,5 @@ structure.txt
 .agents/
 .claude/
 .windsurf/
+
+*.dump

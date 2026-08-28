@@ -501,6 +501,10 @@ export class ShippingService {
       const data =
         await response.json();
 
+      // ==========================================
+      // HTTP-LEVEL ERROR
+      // ==========================================
+
       if (!response.ok) {
         throw new BadRequestException(
           data?.message ||
@@ -508,9 +512,36 @@ export class ShippingService {
         );
       }
 
-      // ----------------------------------------
-      // Extract AWB information
-      // ----------------------------------------
+      // ==========================================
+      // SHIPROCKET BUSINESS-LEVEL ERROR
+      // ==========================================
+
+      if (
+        data?.status_code &&
+        Number(data.status_code) !== 200
+      ) {
+        throw new BadRequestException(
+          data?.message ||
+            'Shiprocket rejected courier assignment',
+        );
+      }
+
+      if (
+        data?.awb_assign_status !==
+          undefined &&
+        Number(
+          data.awb_assign_status,
+        ) !== 1
+      ) {
+        throw new BadRequestException(
+          data?.message ||
+            'Shiprocket could not assign AWB',
+        );
+      }
+
+      // ==========================================
+      // EXTRACT AWB INFORMATION
+      // ==========================================
 
       const awbCode =
         data?.response?.data
@@ -524,9 +555,19 @@ export class ShippingService {
         data?.courier_name ||
         null;
 
-      // ----------------------------------------
-      // Find our order using shipment ID
-      // ----------------------------------------
+      // ==========================================
+      // SAFETY CHECK
+      // ==========================================
+
+      if (!awbCode) {
+        throw new BadRequestException(
+          'Courier assignment succeeded but Shiprocket did not return an AWB code',
+        );
+      }
+
+      // ==========================================
+      // FIND OUR ORDER
+      // ==========================================
 
       const order =
         await this.prisma.order.findFirst({
@@ -536,34 +577,40 @@ export class ShippingService {
           },
         });
 
-      // ----------------------------------------
-      // Save AWB information
-      // ----------------------------------------
-
-      if (order) {
-        await this.prisma.order.update({
-          where: {
-            id: order.id,
-          },
-
-          data: {
-            awbCode:
-              awbCode
-                ? String(awbCode)
-                : null,
-
-            courierName:
-              courierName
-                ? String(courierName)
-                : null,
-
-            trackingUrl:
-              awbCode
-                ? `https://www.shiprocket.in/shipment-tracking/${awbCode}`
-                : null,
-          },
-        });
+      if (!order) {
+        throw new NotFoundException(
+          'Local order not found for this Shiprocket shipment',
+        );
       }
+
+      // ==========================================
+      // SAVE SHIPPING INFORMATION
+      // ==========================================
+
+      const trackingUrl =
+        `https://www.shiprocket.in/shipment-tracking/${awbCode}`;
+
+      await this.prisma.order.update({
+        where: {
+          id: order.id,
+        },
+
+        data: {
+          awbCode:
+            String(awbCode),
+
+          courierName:
+            courierName
+              ? String(courierName)
+              : null,
+
+          trackingUrl,
+        },
+      });
+
+      // ==========================================
+      // SUCCESS RESPONSE
+      // ==========================================
 
       return {
         message:
@@ -577,18 +624,14 @@ export class ShippingService {
 
         courierName,
 
-        trackingUrl:
-          awbCode
-            ? `https://www.shiprocket.in/shipment-tracking/${awbCode}`
-            : null,
-
-        shiprocketResponse:
-          data,
+        trackingUrl,
       };
     } catch (error) {
       if (
         error instanceof
-        BadRequestException
+          BadRequestException ||
+        error instanceof
+          NotFoundException
       ) {
         throw error;
       }
