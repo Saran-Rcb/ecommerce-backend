@@ -1,4 +1,4 @@
-name: Backend CI
+name: Backend CI/CD
 
 on:
   push:
@@ -36,3 +36,35 @@ jobs:
 
       - name: Build Docker image
         run: docker build -t ecommerce-backend:ci .
+
+  deploy:
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd ~/ecommerce-project
+
+            echo "Updating backend..."
+            cd backend
+            git pull origin main
+
+            echo "Updating frontend..."
+            cd ../frontend
+            git pull origin main
+
+            echo "Starting production deployment..."
+            cd ../backend
+
+            docker compose build
+            docker compose up -d
+
+            echo "Deployment completed!"
+            docker compose ps
