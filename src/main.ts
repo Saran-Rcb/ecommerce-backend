@@ -30,7 +30,7 @@ async function bootstrap() {
 
   // Allow requests from the Next.js frontend
   app.enableCors({
-    origin: 'http://13.233.246.198:3000',
+    origin: 'http://13.204.134.137:3000',
     credentials: true,
   });
 
