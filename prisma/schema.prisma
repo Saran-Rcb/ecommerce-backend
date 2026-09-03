@@ -1,9 +1,12 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
+//
+// Synced with the actual PostgreSQL database on 2026-09-01 (read-only audit).
+// Backup of the previous schema: prisma/schema.prisma.backup-before-db-sync
 
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider     = "prisma-client"
+  output       = "../generated/prisma"
   moduleFormat = "cjs"
 }
 
@@ -16,54 +19,139 @@ enum UserRole {
   ADMIN
 }
 
-model Product {
-  id          Int        @id @default(autoincrement())
-  name        String
-  description String?
-  price       Float
-  imageUrl    String?
-  stock       Int        @default(0)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+enum OrderStatus {
+  PENDING
+  PAID
+  PROCESSING
+  SHIPPED
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+}
 
-  cartItems   CartItem[]
-  orderItems  OrderItem[]
+enum CouponDiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+enum ReturnStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  RETURNED
+  REFUNDED
+}
+
+// Deliberately its own type rather than a re-use of OrderStatus: wholesale
+// shares the retail status names so one transition machine covers both, but a
+// future wholesale-only state must never force an enum change onto live orders.
+enum WholesaleOrderStatus {
+  PENDING
+  PAID
+  PROCESSING
+  SHIPPED
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+}
+
+model Product {
+  id               Int      @id @default(autoincrement())
+  name             String
+  description      String?
+  price            Float
+  mrp              Float?
+  imageUrl         String?
+  stock            Int      @default(0)
+  collection       String?
+  status           String   @default("active") @db.VarChar(191)
+  brand            String?
+  gender           String?
+  careInstructions String?
+  fabric           String?
+  material         String?
+  sku              String?
+  shortDescription String?
+  slug             String?  @unique
+  subcategory      String?
+  category         String?
+  tags             String[]
+  images           String[]
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  cartItems     CartItem[]
+  orderItems    OrderItem[]
+  variants      ProductVariant[]
+  reviews       Review[]
+  wishlistItems WishlistItem[]
+}
+
+model ProductVariant {
+  id        Int     @id @default(autoincrement())
+  productId Int
+  size      String
+  color     String?
+  sku       String? @unique
+  price     Float?
+  stock     Int     @default(0)
+  imageUrl  String?
+
+  product    Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  cartItems  CartItem[]
+  orderItems OrderItem[]
+
+  @@unique([productId, size, color])
 }
 
 model User {
-  id        Int       @id @default(autoincrement())
-  name      String
-  email     String    @unique
-  password  String
-  role      UserRole  @default(USER)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id           Int      @id @default(autoincrement())
+  name         String
+  email        String   @unique
+  password     String
+  role         UserRole @default(USER)
+  authProvider String   @default("email")
+  avatarUrl    String?
+  googleId     String?  @unique
+  phone        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  cart      Cart?
-  addresses Address[]
-  orders    Order[]
+  cart            Cart?
+  addresses       Address[]
+  orders          Order[]
+  auditLogs       AuditLog[]
+  returnRequests  ReturnRequest[]
+  reviews         Review[]
+  wishlistItems   WishlistItem[]
+  wholesaleOrders WholesaleOrder[]
 }
 
 model Cart {
-  id        Int        @id @default(autoincrement())
-  userId    Int        @unique
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id        Int      @id @default(autoincrement())
+  userId    Int      @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  items     CartItem[]
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items CartItem[]
 }
 
 model CartItem {
-  id        Int      @id @default(autoincrement())
+  id        Int     @id @default(autoincrement())
   cartId    Int
   productId Int
-  quantity  Int      @default(1)
+  quantity  Int     @default(1)
+  color     String?
+  size      String?
+  variantId Int?
 
-  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
-  product   Product  @relation(fields: [productId], references: [id])
+  cart    Cart            @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product Product         @relation(fields: [productId], references: [id])
+  variant ProductVariant? @relation(fields: [variantId], references: [id])
 
-  @@unique([cartId, productId])
+  @@unique([cartId, productId, variantId])
 }
 
 model Address {
@@ -75,28 +163,28 @@ model Address {
   city       String
   state      String
   postalCode String
+  isDefault  Boolean  @default(false)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  orders     Order[]
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders Order[]
 }
 
-
 model Order {
-  id                 Int         @id @default(autoincrement())
-  userId             Int
-  addressId          Int?
-  status             OrderStatus @default(PENDING)
-  totalAmount        Float
+  id          Int         @id @default(autoincrement())
+  userId      Int
+  addressId   Int?
+  status      OrderStatus @default(PENDING)
+  totalAmount Float
 
   // ==========================================
   // RAZORPAY PAYMENT
   // ==========================================
 
-  razorpayOrderId    String?     @unique
-  razorpayPaymentId  String?
-  razorpaySignature  String?
+  razorpayOrderId   String? @unique
+  razorpayPaymentId String?
+  razorpaySignature String?
 
   // ==========================================
   // SHIPROCKET SHIPPING
@@ -107,21 +195,32 @@ model Order {
   awbCode              String?
   courierName          String?
   trackingUrl          String?
+  shippingStatus       String?
+  shippingSyncedAt     DateTime?
+
+  // ==========================================
+  // COUPON / CHARGES
+  // ==========================================
+
+  couponCode     String?
+  discountAmount Float   @default(0)
+  shippingCharge Float   @default(0)
 
   // ==========================================
   // TIMESTAMPS
   // ==========================================
 
-  createdAt          DateTime    @default(now())
-  updatedAt          DateTime    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // ==========================================
   // RELATIONS
   // ==========================================
 
-  user               User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  address            Address?    @relation(fields: [addressId], references: [id])
-  items              OrderItem[]
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  address        Address?        @relation(fields: [addressId], references: [id])
+  items          OrderItem[]
+  returnRequests ReturnRequest[]
 }
 
 model OrderItem {
@@ -130,16 +229,185 @@ model OrderItem {
   productId Int
   quantity  Int
   price     Float
+  color     String?
+  size      String?
+  variantId Int?
 
-  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product   Product @relation(fields: [productId], references: [id])
+  order   Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product         @relation(fields: [productId], references: [id])
+  variant ProductVariant? @relation(fields: [variantId], references: [id])
 }
 
-enum OrderStatus {
-  PENDING
-  PAID
-  PROCESSING
-  SHIPPED
-  DELIVERED
-  CANCELLED
+model WishlistItem {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  productId Int
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+}
+
+model Coupon {
+  id              Int                @id @default(autoincrement())
+  code            String             @unique
+  discountType    CouponDiscountType
+  discountValue   Float
+  minimumOrder    Float              @default(0)
+  maximumDiscount Float?
+  maximumUses     Int?
+  usedCount       Int                @default(0)
+  perUserLimit    Int?
+  expiresAt       DateTime?
+  isActive        Boolean            @default(true)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+}
+
+model Review {
+  id                 Int      @id @default(autoincrement())
+  userId             Int
+  productId          Int
+  orderId            Int?
+  rating             Int
+  comment            String?
+  isApproved         Boolean  @default(true)
+  isVerifiedPurchase Boolean  @default(false)
+  createdAt          DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model ReturnRequest {
+  id        Int          @id @default(autoincrement())
+  orderId   Int
+  userId    Int
+  reason    String
+  status    ReturnStatus @default(PENDING)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int?
+  action    String
+  entity    String
+  entityId  Int?
+  details   String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+}
+
+// ==================================================================
+// WHOLESALE
+//
+// Kept out of Product/Cart/Order on purpose: OrderItem.productId and
+// Order.userId are required, so a custom bulk order that references no
+// catalog product cannot be stored there without losing its details.
+// ==================================================================
+
+model WholesaleOrder {
+  id        Int    @id @default(autoincrement())
+  reference String @unique
+
+  // ==========================================
+  // CUSTOMER
+  // ==========================================
+
+  // Nullable because the configurator has no login gate; a guest proves
+  // ownership with accessKey instead of a JWT.
+  userId       Int?
+  contactName  String?
+  contactEmail String
+  contactPhone String?
+  company      String?
+  address      String?
+  city         String?
+  state        String?
+  postalCode   String?
+
+  // Proves ownership of an anonymous submission.
+  accessKey String @unique
+
+  // ==========================================
+  // REQUEST (every field the configurator collects)
+  // ==========================================
+
+  garment  String
+  fabric   String
+  colorway String
+  sizes    String[]
+  quantity Int
+  notes    String?
+
+  // ==========================================
+  // QUOTE — calculated by the backend only
+  // ==========================================
+
+  unitPrice   Float
+  totalAmount Float
+  currency    String @default("INR")
+
+  // ==========================================
+  // RAZORPAY PAYMENT
+  // ==========================================
+
+  razorpayOrderId   String?   @unique
+  razorpayPaymentId String?
+  razorpaySignature String?
+  paidAt            DateTime?
+
+  // ==========================================
+  // STATUS
+  // ==========================================
+
+  status WholesaleOrderStatus @default(PENDING)
+
+  // ==========================================
+  // SHIPMENT — same shape as Order, unfilled until
+  // Shiprocket credentials are connected
+  // ==========================================
+
+  shiprocketOrderId    String?
+  shiprocketShipmentId String?
+  awbCode              String?
+  courierName          String?
+  trackingUrl          String?
+  shippingStatus       String?
+  shippingSyncedAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  designs WholesaleDesign[]
+
+  @@index([status])
+  @@index([contactEmail])
+  @@index([userId])
+}
+
+model WholesaleDesign {
+  id               Int @id @default(autoincrement())
+  wholesaleOrderId Int
+
+  // Relative path under the private (never statically served) directory.
+  filePath     String @unique
+  originalName String
+  mimeType     String
+  size         Int
+
+  createdAt DateTime @default(now())
+
+  order WholesaleOrder @relation(fields: [wholesaleOrderId], references: [id], onDelete: Cascade)
+
+  @@index([wholesaleOrderId])
 }

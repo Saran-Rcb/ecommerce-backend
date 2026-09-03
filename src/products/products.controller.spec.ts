@@ -2,6 +2,11 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ProductsController } from './products.controller';
 import { ProductsService } from './products.service';
 
+// uuid v14 is ESM-only, so Jest's CommonJS runtime cannot load the package.
+jest.mock('uuid', () => ({
+  v4: () => globalThis.crypto.randomUUID(),
+}));
+
 describe('ProductsController', () => {
   let controller: ProductsController;
 

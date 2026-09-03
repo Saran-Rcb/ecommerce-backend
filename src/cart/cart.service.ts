@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { summarizePriceLines } from '../pricing/pricing';
 import { AddCartItemDto } from './dto/add-cart-item.dto';
 import { UpdateCartItemDto } from './dto/update-cart-item.dto';
 
@@ -18,6 +19,8 @@ export class CartService {
     addCartItemDto: AddCartItemDto,
   ) {
     const { productId, quantity } = addCartItemDto;
+    const size = addCartItemDto.size?.trim() || null;
+    const color = addCartItemDto.color?.trim() || null;
 
     // Check product exists
     const product = await this.prisma.product.findUnique({
@@ -54,12 +57,12 @@ export class CartService {
     }
 
     // Check whether product already exists in cart
-    const existingItem = await this.prisma.cartItem.findUnique({
+    const existingItem = await this.prisma.cartItem.findFirst({
       where: {
-        cartId_productId: {
-          cartId: cart.id,
-          productId,
-        },
+        cartId: cart.id,
+        productId,
+        size,
+        color,
       },
     });
 
@@ -94,6 +97,8 @@ export class CartService {
         cartId: cart.id,
         productId,
         quantity,
+        size,
+        color,
       },
       include: {
         product: true,
@@ -120,10 +125,20 @@ export class CartService {
       return {
         id: null,
         items: [],
+        summary: summarizePriceLines([]),
       };
     }
 
-    return cart;
+    return {
+      ...cart,
+      summary: summarizePriceLines(
+        cart.items.map((item) => ({
+          price: item.product.price,
+          mrp: item.product.mrp,
+          quantity: item.quantity,
+        })),
+      ),
+    };
   }
 
   // UPDATE CART ITEM QUANTITY

@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PaymentsService } from './payments.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { ShippingService } from '../shipping/shipping.service';
 import { ConfigService } from '@nestjs/config';
 
 describe('PaymentsService', () => {
@@ -26,6 +27,12 @@ describe('PaymentsService', () => {
         {
           provide: PrismaService,
           useValue: {},
+        },
+        {
+          provide: ShippingService,
+          useValue: {
+            autoCreateShipment: jest.fn().mockResolvedValue({ created: false }),
+          },
         },
       ],
     }).compile();

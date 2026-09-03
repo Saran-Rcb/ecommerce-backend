@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 
@@ -11,14 +12,18 @@ import Razorpay from 'razorpay';
 import * as crypto from 'crypto';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { ShippingService } from '../shipping/shipping.service';
 
 @Injectable()
 export class PaymentsService {
+  private readonly logger = new Logger(PaymentsService.name);
+
   private readonly razorpay: Razorpay;
 
   constructor(
     private readonly configService: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly shippingService: ShippingService,
   ) {
     const keyId =
       this.configService.get<string>(
@@ -382,6 +387,34 @@ export class PaymentsService {
           };
         },
       );
+
+    // ==========================================
+    // OPTIONAL SHIPMENT HANDOFF
+    // ==========================================
+
+    // Shiprocket is opt-in per deployment. A payment must never create a
+    // carrier shipment the operator has not enabled, and a shipping failure
+    // must never undo a verified payment.
+
+    if (
+      !result.alreadyProcessed &&
+      result.order.status === 'PAID'
+    ) {
+      const shipment =
+        await this.shippingService.autoCreateShipment(
+          result.order.id,
+        );
+
+      if (shipment.created) {
+        this.logger.log(
+          `Order ${result.order.id}: ${shipment.message}`,
+        );
+      } else {
+        this.logger.log(
+          `Order ${result.order.id}: no shipment created - ${shipment.reason}`,
+        );
+      }
+    }
 
     return result;
   }
